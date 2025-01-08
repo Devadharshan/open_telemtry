@@ -8,7 +8,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, OTLPSpanExporter
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentation
+from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentor
 from opentelemetry.propagators.textmap import inject
 
 # Common OTLP endpoint
@@ -34,9 +34,12 @@ metrics.set_meter_provider(meter_provider)
 meter = metrics.get_meter_provider().get_meter("sybase_app")
 
 # Add system metrics instrumentation
-SystemMetricsInstrumentation(
-    meter=meter, resource=resource, exporter=metric_exporter, export_interval_millis=10000
-).start()
+SystemMetricsInstrumentor().instrument(
+    meter=meter,
+    exporter=metric_exporter,
+    resource=resource,
+    export_interval_millis=10000,
+)
 
 # Define custom metrics
 active_connections_metric = meter.create_up_down_counter(
