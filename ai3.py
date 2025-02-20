@@ -1,94 +1,64 @@
-from fastapi import FastAPI, HTTPException
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import json
-import pandas as pd
-import os
+import streamlit as st
+import requests
 import logging
-from contextlib import asynccontextmanager
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    filename="ui.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
-MODEL_PATH = "C:/Users/YourUsername/phi-2/"
+# FastAPI backend URL
+FASTAPI_URL = "http://localhost:8000"
 
-# Define global model and tokenizer variables
-model = None
-tokenizer = None
+st.title("Self-Assessment Tool")
+st.write("Welcome to the AI-powered Self-Assessment Tool!")
 
-# Load application details from JSON
-with open("applications.json", "r", encoding="utf-8") as f:
-    applications_data = json.load(f)
-    applications = applications_data["applications"]
+logging.info("Streamlit UI started successfully.")
 
-# Load ServiceNow ticket data
-ticket_data = pd.read_csv("servicenow_tickets.csv", encoding="utf-8", errors="replace").fillna("Unknown")
+# Get application list from FastAPI
+try:
+    response = requests.get(f"{FASTAPI_URL}/applications")
+    if response.status_code == 200:
+        applications = response.json().get("applications", [])
+        logging.info(f"Fetched applications: {applications}")
+    else:
+        applications = ["Error fetching applications"]
+        logging.error(f"Error fetching applications: {response.text}")
+except Exception as e:
+    applications = ["Error fetching applications"]
+    logging.exception("Exception while fetching applications")
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global model, tokenizer
-    logging.info("Loading Phi-2 model into memory...")
-    
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, torch_dtype=torch.float32)
-    
-    logging.info("Model loaded successfully.")
-    
-    yield  # Keep the model loaded while FastAPI is running
+# Dropdown for selecting an application
+app_name = st.selectbox("Select an Application", applications)
 
-    # Cleanup (optional)
-    logging.info("Shutting down FastAPI... clearing model from memory.")
-    del model
-    del tokenizer
-    torch.cuda.empty_cache()  # If using GPU
+# Self-assessment questions (Static)
+st.subheader("Rate Yourself")
+q1 = st.slider("How familiar are you with the core infrastructure?", 1, 5, 3)
+q2 = st.slider("Have you resolved any critical issues?", 1, 5, 3)
+q3 = st.slider("How well do you understand its functionalities?", 1, 5, 3)
+q4 = st.slider("Have you worked on performance optimization?", 1, 5, 3)
+q5 = st.slider("Can you troubleshoot complex failures?", 1, 5, 3)
 
-# Initialize FastAPI with lifespan
-app = FastAPI(lifespan=lifespan)
+# Submit button
+if st.button("Submit"):
+    user_responses = [q1, q2, q3, q4, q5]
+    payload = {"user": "TestUser", "application": app_name, "responses": user_responses}
 
-STATIC_QUESTIONS = [
-    "How familiar are you with the core infrastructure of this application?",
-    "Have you resolved any critical issues related to this application?",
-    "How well do you understand its functionalities and dependencies?",
-    "Have you worked on performance optimization for this application?",
-    "Can you troubleshoot complex failures in this application?"
-]
+    logging.info(f"User submitted responses: {payload}")
 
-@app.get("/applications")
-def get_applications():
-    return {"applications": list(applications.keys())}
-
-@app.get("/static-questions")
-def get_static_questions():
-    return {"questions": STATIC_QUESTIONS}
-
-@app.post("/verify-skill")
-def verify_skill(payload: dict):
-    user = payload["user"]
-    application = payload["application"]
-    responses = payload["responses"]
-    
-    if application not in applications:
-        raise HTTPException(status_code=400, detail="Application not found")
-    
-    app_tickets = ticket_data[ticket_data["application"] == application]
-    logging.info(f"Found {len(app_tickets)} tickets for application {application}")
-    
-    app_details = applications.get(application, {})
-    functionality = app_details.get("functionality", "Unknown functionality")
-    criticality = app_details.get("criticality", "Unknown criticality")
-    common_issues = app_details.get("common_issues", [])
-    
-    input_prompt = (
-        f"User rated themselves {responses} in {application}. "
-        f"This application handles: {functionality}. "
-        f"It has a criticality level of {criticality}. "
-        f"Common issues include: {', '.join(common_issues)}. "
-        f"Based on past ServiceNow tickets, generate 5 advanced questions."
-    )
-    
-    inputs = tokenizer(input_prompt, return_tensors="pt")
-    with torch.no_grad():
-        output = model.generate(**inputs, max_length=200)
-    questions = tokenizer.decode(output[0], skip_special_tokens=True).split("\n")
-    
-    return {"questions": [q for q in questions if q.strip()]}
+    try:
+        response = requests.post(f"{FASTAPI_URL}/verify-skill", json=payload)
+        if response.status_code == 200:
+            st.subheader("AI-Generated Questions")
+            questions = response.json().get("questions", [])
+            for question in questions:
+                st.write(f"- {question}")
+            logging.info(f"Received AI-generated questions: {questions}")
+        else:
+            st.error("Error fetching AI-generated questions.")
+            logging.error(f"Error in API response: {response.text}")
+    except Exception as e:
+        st.error("Failed to connect to the backend.")
+        logging.exception("Exception while sending request to backend")
