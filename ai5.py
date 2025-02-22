@@ -205,3 +205,23 @@ st.subheader("📊 Manager View")
 if st.button("View Assessments"):
     data = requests.get(f"{API_URL}/manager-view").json()["assessments"]
     st.table(data)
+
+
+
+
+prompt = f"""
+You are an AI assistant evaluating a support engineer's expertise on the application: {application_name}.
+
+**Task:**  
+- Read the provided application details and ticket history.  
+- Generate **5 relevant, non-repetitive questions** based on the support tickets.  
+- Ensure each question tests practical troubleshooting skills.  
+
+### **Application Details:**  
+{application_details}  
+
+### **Past Tickets & Issues:**  
+{csv_data}  
+
+**Now, generate 5 structured questions for evaluation.**  
+"""
